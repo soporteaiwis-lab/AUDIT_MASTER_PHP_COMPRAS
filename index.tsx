@@ -24,6 +24,9 @@ interface AnalysisResult {
   missingAmount: number;
   missingRecords: ParsedRow[];
   matchedCount: number;
+  // Added for smart lookups
+  controlRecords: ParsedRow[];
+  softlandRecords: ParsedRow[];
 }
 
 interface SchoolConfig {
@@ -79,7 +82,7 @@ const DataTable = ({
   enableAudit = false,
   onAuditAction,
   auditState,
-  onDeepLink
+  onSmartCheck
 }: { 
   data: ParsedRow[], 
   headers: string[], 
@@ -88,7 +91,7 @@ const DataTable = ({
   enableAudit?: boolean,
   onAuditAction?: (id: string, status: AuditStatus) => void,
   auditState?: Record<string, AuditStatus>,
-  onDeepLink?: (target: 'softland' | 'control', query: string) => void
+  onSmartCheck?: (row: ParsedRow) => void
 }) => {
   const [search, setSearch] = useState(initialSearch);
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
@@ -181,7 +184,7 @@ const DataTable = ({
           <thead className="bg-gray-50 sticky top-0 z-10 shadow-sm">
             <tr>
               {enableAudit && (
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50">Auditoría</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50 w-32">Acciones</th>
               )}
               {headers.map(header => (
                 <th 
@@ -201,58 +204,46 @@ const DataTable = ({
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {currentData.map((row, idx) => {
-               // Unique Key generation
                const rowId = row['_key'] || `${idx}`; 
                const status = auditState?.[rowId] || 'pending';
                
                return (
                 <tr key={idx} className={`hover:bg-gray-50 transition-colors ${status === 'verified' ? 'bg-green-50' : status === 'failed' ? 'bg-red-50' : ''}`}>
-                  {enableAudit && onAuditAction && (
+                  {enableAudit && (
                     <td className="px-4 py-3 whitespace-nowrap text-sm flex items-center gap-2">
+                      {/* Manual Buttons */}
                       <button 
-                        onClick={() => onAuditAction(rowId, 'verified')}
-                        title="Marcar como Correcto (Faltante Confirmado)"
+                        onClick={() => onAuditAction?.(rowId, 'verified')}
+                        title="Manual: Marcar Correcto"
                         className={`p-1 rounded-full ${status === 'verified' ? 'bg-green-500 text-white' : 'text-gray-300 hover:text-green-500'}`}
                       >
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                       </button>
                       <button 
-                         onClick={() => onAuditAction(rowId, 'failed')}
-                         title="Marcar como Fallido (Falso Positivo)"
+                         onClick={() => onAuditAction?.(rowId, 'failed')}
+                         title="Manual: Marcar Fallido"
                          className={`p-1 rounded-full ${status === 'failed' ? 'bg-red-500 text-white' : 'text-gray-300 hover:text-red-500'}`}
                       >
                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                      </button>
+                      
+                      {/* Smart Check Button */}
+                      <div className="h-6 w-px bg-gray-300 mx-1"></div>
+                      
+                      <button 
+                         onClick={() => onSmartCheck?.(row)}
+                         title="Smart Check: Verificar Ausencia en Control"
+                         className="p-1 rounded-full text-blue-500 hover:bg-blue-50 hover:text-blue-700 transition-colors"
+                      >
+                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.384-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
                       </button>
                     </td>
                   )}
                   {headers.map((header, hIdx) => {
                     const val = row[header];
-                    const isInvoice = header === 'factura_val';
-                    
                     return (
                       <td key={hIdx} className="px-4 py-3 whitespace-nowrap text-sm text-gray-700">
-                        <div className="flex items-center gap-2">
-                          {val}
-                          {/* Cross Reference Buttons for Invoice Column in Audit Mode */}
-                          {enableAudit && isInvoice && onDeepLink && (
-                            <div className="flex opacity-20 group-hover:opacity-100 transition-opacity">
-                              <button 
-                                onClick={() => onDeepLink('softland', val)}
-                                title="Buscar en Softland"
-                                className="text-blue-500 hover:text-blue-700 p-1"
-                              >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-                              </button>
-                              <button 
-                                onClick={() => onDeepLink('control', val)}
-                                title="Buscar en Control (Verificar ausencia)"
-                                className="text-purple-500 hover:text-purple-700 p-1"
-                              >
-                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 012-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" /></svg>
-                              </button>
-                            </div>
-                          )}
-                        </div>
+                        {val}
                       </td>
                     );
                   })}
@@ -623,6 +614,28 @@ const DiscrepancyReport = ({
     setAuditState({ ...auditState, [id]: status });
   };
 
+  const handleSmartCheck = (row: ParsedRow) => {
+    // Logic: Look for the invoice number in result.controlRecords.
+    // Use normalized invoice number.
+    const targetInv = normalizeInvoice(row['factura_val']);
+    
+    // Find all matches in Control that share the same invoice number (ignoring RUT for a moment)
+    const matches = result.controlRecords.filter(c => normalizeInvoice(c['factura_val']) === targetInv);
+    
+    const rowId = row['_key'];
+
+    if (matches.length > 0) {
+      // Found something! It means it exists in control, so it's a FALSE POSITIVE (Fallido)
+      handleAuditAction(rowId, 'failed');
+      const match = matches[0];
+      alert(`⚠️ ALERTA: Esta factura SI existe en Control Presupuestario.\n\nEncontrado: ${match['nombre_val']}\nRUT: ${match['rut_val']}\nMonto: ${match['monto_val']}\n\nSe ha marcado automáticamente como 'Fallido' (Falso Positivo) porque la diferencia se debe probablemente a un error de digitación en el RUT.`);
+    } else {
+      // Not found at all! It means it is truly missing.
+      handleAuditAction(rowId, 'verified');
+      alert(`✅ CONFIRMADO: La factura N° ${row['factura_val']} NO existe en Control Presupuestario.\n\nSe ha marcado automáticamente como 'Validado' (Discrepancia Real).`);
+    }
+  };
+
   return (
     <div className="space-y-6 animate-fade-in-up">
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white p-4 rounded-lg shadow-sm">
@@ -666,7 +679,7 @@ const DiscrepancyReport = ({
           enableAudit={true}
           auditState={auditState}
           onAuditAction={handleAuditAction}
-          onDeepLink={onDeepLink}
+          onSmartCheck={handleSmartCheck}
         />
       </div>
     </div>
@@ -737,7 +750,9 @@ const App = () => {
       matchedCount: softlandProcessed.length - missingRecords.length,
       missingCount: missingRecords.length,
       missingAmount: totalMissingAmount,
-      missingRecords: missingRecords
+      missingRecords: missingRecords,
+      controlRecords: controlProcessed, // Added
+      softlandRecords: softlandProcessed // Added
     });
   };
 
