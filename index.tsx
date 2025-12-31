@@ -101,127 +101,6 @@ const parseAmount = (amt: string | number) => {
   return parseInt(chileanFormat, 10) || 0;
 };
 
-// ============================================================
-// NUEVA FUNCIÓN DE VALIDACIÓN ROBUSTA
-// ============================================================
-const isValidDataRow = (row: ParsedRow, mapping: Record<string, string>): boolean => {
-  // Obtener valores clave
-  const factura = String(row[mapping['factura']] || '').trim();
-  const rut = String(row[mapping['rut']] || '').trim();
-  const monto = String(row[mapping['monto']] || '').trim();
-  const nombre = String(row[mapping['nombre']] || '').trim().toLowerCase();
-  const tipo = String(row[mapping['tipo']] || '').trim().toLowerCase();
-  
-  // === 1. VALIDACIONES BÁSICAS ===
-  
-  // 1.1 Factura debe existir y no ser 0
-  if (!factura || factura === '0' || factura === 'nan' || factura === 'null') {
-    return false;
-  }
-  
-  // 1.2 RUT debe existir y tener formato válido (al menos 7 caracteres sin puntos/guiones)
-  const rutClean = normalizeRut(rut);
-  if (!rutClean || rutClean.length < 7) {
-    return false;
-  }
-  
-  // 1.3 Monto debe existir y no ser 0
-  if (!monto || monto === '0' || monto === 'nan' || monto === 'null') {
-    return false;
-  }
-  
-  // 1.4 Nombre del proveedor debe existir
-  if (!nombre || nombre === 'nan' || nombre === 'null') {
-    return false;
-  }
-  
-  // === 2. FILTRAR FILAS DE SUBTOTALES Y TÍTULOS ===
-  
-  // 2.1 Palabras clave que indican subtotales o títulos
-  const invalidKeywords = [
-    'total', 
-    'subtotal', 
-    'suma', 
-    'libro de compra',
-    'ordenado',
-    'desde:',
-    'hasta:',
-    'moneda:',
-    'período',
-    'periodo',
-    'resumen'
-  ];
-  
-  if (invalidKeywords.some(kw => nombre.includes(kw))) {
-    return false;
-  }
-  
-  // 2.2 Si el nombre del proveedor es suspiciosamente corto (menos de 3 caracteres)
-  if (nombre.length < 3) {
-    return false;
-  }
-  
-  // === 3. FILTRAR NOTAS DE CRÉDITO Y DOCUMENTOS NO VÁLIDOS ===
-  
-  // 3.1 Tipos de documento a excluir
-  const tipoClean = tipo.replace('.0', '').replace(/\s+/g, '');
-  const invalidTypes = [
-    '61',  // Nota de crédito electrónica
-    '56',  // Nota de débito
-    '52',  // Guía de despacho
-    '60',  // Nota de crédito manual
-    'nc',
-    'n/c',
-    'notacredito',
-    'notadebito',
-    'credito',
-    'debito',
-    'débito',
-    'crédito'
-  ];
-  
-  if (invalidTypes.some(t => tipoClean === t || tipoClean.includes(t))) {
-    return false;
-  }
-  
-  // 3.2 Si el nombre contiene "nota de crédito" o similar
-  if (nombre.includes('nota') && (nombre.includes('credito') || nombre.includes('crédito'))) {
-    return false;
-  }
-  
-  // === 4. FILTRAR MONTOS NEGATIVOS (GENERALMENTE NOTAS DE CRÉDITO) ===
-  
-  const montoNumerico = parseAmount(monto);
-  if (montoNumerico < 0) {
-    return false; // Las notas de crédito tienen montos negativos
-  }
-  
-  // === 5. VALIDAR QUE EL RUT TENGA FORMATO CHILENO VÁLIDO ===
-  
-  // RUT debe tener entre 7 y 9 dígitos (sin considerar DV)
-  const rutSinDV = rutClean.slice(0, -1);
-  if (rutSinDV.length < 7 || rutSinDV.length > 9) {
-    return false;
-  }
-  
-  // Todos los caracteres del RUT (excepto el DV) deben ser dígitos
-  if (!/^\d+$/.test(rutSinDV)) {
-    return false;
-  }
-  
-  // El dígito verificador debe ser dígito o K
-  const dv = rutClean.slice(-1);
-  if (!/^[0-9K]$/.test(dv)) {
-    return false;
-  }
-  
-  // Si pasó todas las validaciones, es una fila válida
-  return true;
-};
-// ============================================================
-// FIN DE FUNCIÓN DE VALIDACIÓN
-// ============================================================
-
 // --- Components ---
 
 // 1. Comparison Modal
@@ -298,8 +177,8 @@ const ComparisonModal = ({
                            </span>
                          ) : (
                            <span className="flex items-center text-red-600 text-sm bg-red-50 px-2 py-1 rounded-full w-full">
-                             <svg className="w-4 h-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                             Diferente
+                             <svg className="w-4 h-4 mr-1 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                             <span className="truncate">Diferente</span>
                            </span>
                          )}
                        </div>
@@ -309,14 +188,14 @@ const ComparisonModal = ({
               </div>
 
               <div className="border rounded-lg p-4 bg-green-50/50 border-green-100">
-                 <div className="flex items-center gap-2 mb-4">
-                   <div className="w-3 h-3 rounded-full bg-green-600"></div>
-                   <h4 className="font-bold text-green-900">Destino: Control</h4>
+                <div className="flex items-center gap-2 mb-4">
+                   <div className="w-3 h-3 rounded-full bg-green-500"></div>
+                   <h4 className="font-bold text-green-900">Candidato: Control</h4>
                 </div>
                 <div className="space-y-3">
                   {fields.map(f => (
                     <div key={f.key}>
-                      <span className="text-xs text-green-400 uppercase font-semibold">{f.label}</span>
+                      <span className="text-xs text-green-600 uppercase font-semibold">{f.label}</span>
                       <div className="text-sm font-medium text-gray-800 break-words">{candidate[f.key]}</div>
                     </div>
                   ))}
@@ -324,24 +203,22 @@ const ComparisonModal = ({
               </div>
             </div>
           ) : (
-            <div className="text-center py-12">
-               <svg className="w-20 h-20 mx-auto text-gray-300 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-               <h4 className="text-xl font-bold text-gray-700 mb-2">No se encontró registro en Control</h4>
-               <p className="text-gray-500 max-w-md mx-auto">Esta factura existe en Softland pero no se encontró un registro coincidente en la base de Control Presupuestario.</p>
-               <div className="mt-6 bg-slate-50 border border-slate-200 p-4 rounded-lg max-w-md mx-auto text-left">
-                  <p className="text-xs text-slate-600 font-bold uppercase mb-2">Dato de Softland</p>
-                  {fields.map(f => (
-                    <div key={f.key} className="py-1.5 border-b border-slate-100 last:border-0">
-                      <span className="text-xs text-slate-500 font-semibold">{f.label}:</span>
-                      <span className="text-sm ml-2 text-slate-800">{record[f.key]}</span>
-                    </div>
-                  ))}
-               </div>
-            </div>
+             <div className="flex flex-col items-center justify-center h-64 text-center">
+                <div className="bg-red-100 p-4 rounded-full mb-4">
+                  <svg className="w-10 h-10 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </div>
+                <h4 className="text-xl font-bold text-gray-800">No encontrado en Control</h4>
+                <p className="text-gray-500 max-w-md mt-2">No se encontró ningún registro en la base de Control Presupuestario que coincida con el número de factura <strong>{record['factura_val']}</strong>.</p>
+                <div className="mt-6 bg-green-50 text-green-700 px-4 py-2 rounded-lg border border-green-200">
+                   Esto indica una discrepancia real confirmada (Ausencia Total).
+                </div>
+             </div>
           )}
         </div>
 
-        <div className="p-6 border-t border-gray-100 flex justify-end gap-3 bg-slate-50 rounded-b-xl">
+        <div className="p-6 border-t border-gray-100 bg-gray-50 rounded-b-xl flex justify-end gap-3">
+          <button onClick={onClose} className="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg transition">Cancelar</button>
+          
           <button 
             onClick={() => { onMarkStatus('verified'); onClose(); }}
             className="px-6 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-900 flex items-center gap-2 shadow-lg shadow-slate-200"
@@ -671,240 +548,219 @@ const FileUploader = ({ label, onFileLoaded, fileInfo }: { label: string, onFile
   };
 
   const handleFile = (file: File) => {
-    if (!file) return;
     setLoading(true);
-
-    const fileName = file.name.toLowerCase();
-    if (fileName.endsWith('.csv')) {
-      processCSV(file);
-    } else if (fileName.endsWith('.xlsx') || fileName.endsWith('.xls')) {
-      processExcel(file);
-    } else {
-      alert("Formato no soportado. Use archivos .csv o .xlsx");
-      setLoading(false);
-    }
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragOver(false);
-    if (e.dataTransfer.files?.[0]) handleFile(e.dataTransfer.files[0]);
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    if (ext === 'xlsx' || ext === 'xls') processExcel(file);
+    else processCSV(file);
   };
 
   return (
-    <div>
-      {!fileInfo ? (
-        <div
-          onDrop={handleDrop}
-          onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
-          onDragLeave={() => setIsDragOver(false)}
-          className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer hover:border-blue-400 transition-colors ${isDragOver ? 'drag-active' : 'border-gray-300'}`}
-          onClick={() => document.getElementById(`file-input-${label}`)?.click()}
-        >
-          {loading ? (
-            <div className="flex flex-col items-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mb-3"></div>
-              <p className="text-gray-500 text-sm">Procesando archivo...</p>
-            </div>
-          ) : (
-            <>
-              <svg className="w-12 h-12 mx-auto text-gray-400 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" /></svg>
-              <p className="text-gray-600 font-medium mb-1">{label}</p>
-              <p className="text-xs text-gray-500">Arrastra o haz clic para seleccionar (.csv .xlsx)</p>
-            </>
-          )}
-          <input id={`file-input-${label}`} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
-        </div>
-      ) : (
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <svg className="w-8 h-8 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-              <div>
-                <p className="font-medium text-gray-800 text-sm">{fileInfo.name}</p>
-                <p className="text-xs text-gray-500">{fileInfo.data.length} registros cargados</p>
-              </div>
-            </div>
-            <button onClick={() => onFileLoaded(null!)} className="text-red-500 hover:text-red-700">
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-            </button>
-          </div>
-        </div>
-      )}
+    <div 
+      className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${isDragOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300 bg-white'} ${fileInfo ? 'border-green-500 bg-green-50' : ''}`}
+      onDragOver={(e) => { e.preventDefault(); setIsDragOver(true); }}
+      onDragLeave={() => setIsDragOver(false)}
+      onDrop={(e) => { e.preventDefault(); setIsDragOver(false); if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]); }}
+    >
+      <div className="mb-2">
+        {loading ? (
+           <svg className="animate-spin h-10 w-10 mx-auto text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+        ) : (
+          <svg className={`w-10 h-10 mx-auto ${fileInfo ? 'text-green-500' : 'text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+        )}
+      </div>
+      <h3 className="font-semibold text-gray-700">{label}</h3>
+      {fileInfo ? <p className="text-sm text-green-600 mt-1">Cargado: {fileInfo.name} ({fileInfo.data.length} filas)</p> : <p className="text-sm text-gray-500 mt-1">Arrastra tu archivo (.csv o .xlsx)</p>}
+      <input type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} id={`file-${label}`} />
+      <label htmlFor={`file-${label}`} className="mt-2 inline-block text-xs text-blue-600 hover:text-blue-800 cursor-pointer">o buscar archivo</label>
     </div>
   );
 };
 
 const ColumnMapper = ({ headers, mapping, setMapping }: { headers: string[], mapping: Record<string, string>, setMapping: (m: Record<string, string>) => void }) => {
-  const handleChange = (reqKey: string, selectedHeader: string) => {
-    setMapping({ ...mapping, [reqKey]: selectedHeader });
-  };
-
-  const allMapped = REQUIRED_FIELDS.every(field => mapping[field.key]);
+  useEffect(() => {
+    const newMapping = { ...mapping };
+    let changed = false;
+    REQUIRED_FIELDS.forEach(field => {
+      if (!newMapping[field.key]) {
+        const match = headers.find(h => h.toLowerCase().includes(field.key) || h.toLowerCase().includes(field.label.toLowerCase().split('/')[0]));
+        if (match) { newMapping[field.key] = match; changed = true; }
+      }
+    });
+    if (changed) setMapping(newMapping);
+  }, [headers]);
 
   return (
-    <div className="space-y-3">
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 bg-gray-50 p-4 rounded-md">
       {REQUIRED_FIELDS.map(field => (
-        <div key={field.key} className="grid grid-cols-2 gap-3 items-center">
-          <label className="text-sm text-gray-700">{field.label}</label>
-          <select value={mapping[field.key] || ''} onChange={(e) => handleChange(field.key, e.target.value)} className="border rounded px-2 py-1.5 text-sm">
-            <option value="">-- Seleccionar columna --</option>
+        <div key={field.key}>
+          <label className="block text-xs font-medium text-gray-700 mb-1">{field.label}</label>
+          <select className="w-full text-sm border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500" value={mapping[field.key] || ''} onChange={(e) => setMapping({...mapping, [field.key]: e.target.value})}>
+            <option value="">-- Seleccionar Columna --</option>
             {headers.map(h => <option key={h} value={h}>{h}</option>)}
           </select>
         </div>
       ))}
-      {!allMapped && <p className="text-xs text-amber-600 bg-amber-50 px-2 py-1.5 rounded border border-amber-200">⚠️ Completa todos los mapeos para continuar</p>}
-      {allMapped && <p className="text-xs text-green-600 bg-green-50 px-2 py-1.5 rounded border border-green-200">✅ Mapeo completo</p>}
     </div>
   );
 };
 
-const DiscrepancyReport = ({ 
-  result, 
-  schoolName, 
-  auditState, 
-  setAuditState, 
-  onDeepLink, 
-  onClearData 
-}: { 
-  result: AnalysisResult, 
-  schoolName: string, 
-  auditState: Record<string, AuditStatus>, 
-  setAuditState: (s: Record<string, AuditStatus>) => void, 
-  onDeepLink: (target: 'softland' | 'control', query: string) => void, 
-  onClearData: () => void 
-}) => {
+const DiscrepancyReport = ({ result, schoolName, auditState, setAuditState, onClearData }: { result: AnalysisResult, schoolName: string, auditState: Record<string, AuditStatus>, setAuditState: (s: Record<string, AuditStatus>) => void, onDeepLink: (t: 'softland' | 'control', q: string) => void, onClearData: () => void }) => {
+  const [aiReport, setAiReport] = useState<string>('');
+  const [loadingAi, setLoadingAi] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [modalRecord, setModalRecord] = useState<ParsedRow | null>(null);
 
-  const verified = Object.values(auditState).filter(s => s === 'verified').length;
-  const failed = Object.values(auditState).filter(s => s === 'failed').length;
-  const realMissing = result.missingCount - failed;
-  const realMissingAmount = result.missingRecords.filter(r => auditState[r['_key']] !== 'failed').reduce((sum, r) => sum + parseAmount(r['monto_val']), 0);
+  // Real-time Counters Logic
+  const stats = useMemo(() => {
+    let verifiedCount = 0;
+    let failedCount = 0;
+    let confirmedAmount = 0;
+    
+    // Iterate through all initial missing records to check their audit status
+    result.missingRecords.forEach(rec => {
+       const status = auditState[rec._key] || 'pending';
+       if (status === 'verified') verifiedCount++;
+       if (status === 'failed') failedCount++;
+       
+       // Dynamic Amount: Only Verified and Pending count towards discrepancy. Failed (False positive) are excluded.
+       if (status !== 'failed') {
+          confirmedAmount += parseAmount(rec['monto_val']);
+       }
+    });
+
+    return {
+      total: result.missingRecords.length, // Initial detection
+      verified: verifiedCount,
+      failed: failedCount,
+      confirmedAmount
+    };
+  }, [result, auditState]);
+
+
+  const generateAiReport = async () => {
+    setLoadingAi(true);
+    try {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+      const topMissing = result.missingRecords.filter(r => auditState[r._key] !== 'failed')
+        .sort((a, b) => parseAmount(b['monto_val']) - parseAmount(a['monto_val'])).slice(0, 10);
+      const prompt = `Actúa como Auditor Financiero. Analiza discrepancias Softland vs Control para "${schoolName}". Registros Softland: ${result.softlandTotal}. Control: ${result.controlTotal}. Faltantes Confirmados: ${stats.verified} de ${stats.total}. Monto Real Faltante: $${stats.confirmedAmount.toLocaleString('es-CL')}. Muestra top 10 faltantes (reales): ${JSON.stringify(topMissing)}. Redacta informe Markdown breve y directo.`;
+      const response = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
+      setAiReport(response.text || 'No se pudo generar el reporte.');
+    } catch (error) { setAiReport('Error conexión IA.'); setLoadingAi(false); } finally { setLoadingAi(false); }
+  };
+
+  const exportToExcel = async () => {
+    setExporting(true);
+    try {
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Discrepancias Auditadas');
+      worksheet.columns = [
+        { header: 'Estado Auditoría', key: 'status', width: 20 },
+        { header: 'Fecha', key: 'fecha', width: 15 },
+        { header: 'N° Factura', key: 'factura', width: 20 },
+        { header: 'RUT', key: 'rut', width: 15 },
+        { header: 'Nombre / Proveedor', key: 'nombre', width: 40 },
+        { header: 'Monto ($)', key: 'monto', width: 20 },
+      ];
+      
+      // Sort: Verified -> Pending -> Failed
+      const sortedRecords = [...result.missingRecords].sort((a, b) => {
+         const statusA = auditState[a['_key']] || 'pending';
+         const statusB = auditState[b['_key']] || 'pending';
+         const priority = { 'verified': 1, 'pending': 2, 'failed': 3 };
+         return priority[statusA as keyof typeof priority] - priority[statusB as keyof typeof priority];
+      });
+
+      sortedRecords.forEach(row => {
+        const status = auditState[row['_key']] || 'pending';
+        let statusLabel = 'Pendiente';
+        if (status === 'verified') statusLabel = 'FALTANTE REAL';
+        if (status === 'failed') statusLabel = 'Falso Positivo';
+        
+        const r = worksheet.addRow({ 
+            status: statusLabel, 
+            fecha: row['fecha_val'], 
+            factura: row['factura_val'], 
+            rut: row['rut_val'], 
+            nombre: row['nombre_val'], 
+            monto: parseInt(row['monto_val']) 
+        });
+
+        // Color coding in Excel
+        if (status === 'verified') r.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFDCFCE7' } }; // Green
+        if (status === 'failed') r.getCell(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } }; // Red
+      });
+
+      const headerRow = worksheet.getRow(1);
+      headerRow.eachCell((cell: any) => { cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E293B' } }; cell.font = { color: { argb: 'FFFFFFFF' }, bold: true }; });
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `Auditoria_${schoolName.replace(/\s+/g, '_')}_${new Date().toISOString().slice(0,10)}.xlsx`;
+      link.click();
+    } catch (error) { alert("Error al generar Excel."); } finally { setExporting(false); }
+  };
 
   const handleAuditAction = (ids: string[], status: AuditStatus) => {
     const newState = { ...auditState };
-    ids.forEach(id => { newState[id] = status; });
+    ids.forEach(id => newState[id] = status);
     setAuditState(newState);
   };
 
   const handleBulkAutoCheck = (ids: string[]) => {
     const newState = { ...auditState };
-    const controlKeys = new Set(result.controlRecords.map(r => r['_key']));
-
+    let foundCount = 0;
+    let missingCount = 0;
     ids.forEach(id => {
-      const record = result.missingRecords.find(r => r['_key'] === id);
-      if (!record) return;
-      
-      const targetInv = normalizeInvoice(record['factura_val']);
-      const found = result.controlRecords.some(c => normalizeInvoice(c['factura_val']) === targetInv);
-      newState[id] = found ? 'failed' : 'verified';
+      const row = result.missingRecords.find(r => r._key === id);
+      if (!row) return;
+      const targetInv = normalizeInvoice(row['factura_val']);
+      const match = result.controlRecords.some(c => normalizeInvoice(c['factura_val']) === targetInv);
+      if (match) { newState[id] = 'failed'; foundCount++; } else { newState[id] = 'verified'; missingCount++; }
     });
-
     setAuditState(newState);
-  };
-
-  const exportToExcel = async () => {
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('Discrepancias');
-
-    sheet.columns = [
-      { header: 'Fecha', key: 'fecha_val', width: 12 },
-      { header: 'N° Factura', key: 'factura_val', width: 15 },
-      { header: 'RUT', key: 'rut_val', width: 15 },
-      { header: 'Nombre Proveedor', key: 'nombre_val', width: 40 },
-      { header: 'Monto', key: 'monto_val', width: 15 }
-    ];
-
-    result.missingRecords.forEach(r => {
-      sheet.addRow({
-        fecha_val: r['fecha_val'],
-        factura_val: r['factura_val'],
-        rut_val: r['rut_val'],
-        nombre_val: r['nombre_val'],
-        monto_val: r['monto_val']
-      });
-    });
-
-    sheet.getRow(1).font = { bold: true };
-    sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
-
-    const buffer = await workbook.xlsx.writeBuffer();
-    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Discrepancias_${schoolName}_${new Date().toISOString().split('T')[0]}.xlsx`;
-    a.click();
+    alert(`Auto-Análisis Completado:\n\n✅ ${missingCount} confirmados como Faltantes (Verificados)\n❌ ${foundCount} marcados como Falsos Positivos (Encontrados en Control)`);
   };
 
   return (
-    <div className="animate-fade-in-up">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <div className="bg-gradient-to-br from-slate-50 to-slate-100 p-6 rounded-lg shadow-sm border border-slate-200">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-slate-600 font-medium">DISCREPANCIAS INICIALES</span>
-            <span className="text-xs bg-slate-200 text-slate-700 px-2 py-1 rounded-full font-bold">Cruce algoritmo</span>
+    <div className="space-y-6 animate-fade-in-up">
+      {/* Real-time Counters */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
+             <p className="text-xs text-gray-500 uppercase font-bold">Discrepancias Iniciales</p>
+             <p className="text-3xl font-bold text-gray-800">{stats.total}</p>
+             <p className="text-xs text-gray-400 mt-1">Cruce algoritmo</p>
           </div>
-          <div className="text-3xl font-bold text-slate-800">{result.missingCount}</div>
-          <div className="text-sm text-slate-500 mt-1">${result.missingAmount.toLocaleString('es-CL')}</div>
-        </div>
-
-        <div className="bg-gradient-to-br from-green-50 to-green-100 p-6 rounded-lg shadow-sm border border-green-200">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-green-700 font-medium">✅ FALTANTES REALES</span>
-            <span className="text-xs bg-green-200 text-green-800 px-2 py-1 rounded-full font-bold">Confirmados</span>
+          <div className="bg-white p-4 rounded-lg shadow-sm border border-green-200 bg-green-50">
+             <p className="text-xs text-green-700 uppercase font-bold">✅ Faltantes Reales</p>
+             <p className="text-3xl font-bold text-green-700">{stats.verified}</p>
+             <p className="text-xs text-green-600 mt-1">Confirmados</p>
           </div>
-          <div className="text-3xl font-bold text-green-900">{verified}</div>
-          <div className="text-sm text-green-600 mt-1">Validado manualmente</div>
-        </div>
-
-        <div className="bg-gradient-to-br from-red-50 to-red-100 p-6 rounded-lg shadow-sm border border-red-200">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-red-700 font-medium">❌ FALSOS POSITIVOS</span>
-            <span className="text-xs bg-red-200 text-red-800 px-2 py-1 rounded-full font-bold">Descartados</span>
+          <div className="bg-white p-4 rounded-lg shadow-sm border border-red-200 bg-red-50">
+             <p className="text-xs text-red-700 uppercase font-bold">❌ Falsos Positivos</p>
+             <p className="text-3xl font-bold text-red-700">{stats.failed}</p>
+             <p className="text-xs text-red-600 mt-1">Descartados</p>
           </div>
-          <div className="text-3xl font-bold text-red-900">{failed}</div>
-          <div className="text-sm text-red-600 mt-1">Excluir del reporte</div>
-        </div>
-
-        <div className="bg-gradient-to-br from-blue-50 to-blue-100 p-6 rounded-lg shadow-sm border border-blue-200">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm text-blue-700 font-medium uppercase">MONTO REAL FALTANTE</span>
-            <span className="text-xs bg-blue-200 text-blue-800 px-2 py-1 rounded-full font-bold">Excluye descartados</span>
+           <div className="bg-white p-4 rounded-lg shadow-sm border border-blue-200">
+             <p className="text-xs text-blue-700 uppercase font-bold">Monto Real Faltante</p>
+             <p className="text-2xl font-bold text-blue-800">${stats.confirmedAmount.toLocaleString('es-CL')}</p>
+             <p className="text-xs text-blue-600 mt-1">Excluye descartados</p>
           </div>
-          <div className="text-2xl font-bold text-blue-900">${realMissingAmount.toLocaleString('es-CL')}</div>
-          <div className="text-sm text-blue-600 mt-1">{realMissing} registros válidos</div>
-        </div>
       </div>
 
-      <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 mb-6">
-        <h3 className="font-semibold text-gray-800 mb-3">Módulo de Auditoría y Validación</h3>
-        <div className="flex gap-3">
-          <button onClick={onClearData} className="px-4 py-2 bg-white border border-red-200 text-red-600 rounded-lg hover:bg-red-50 flex items-center gap-2 text-sm">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-            Limpiar / Nuevo
-          </button>
-          <button onClick={exportToExcel} className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2 text-sm shadow-md">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-            Exportar Excel
-          </button>
-          <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2 text-sm shadow-md">
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
-            Informe IA
-          </button>
+      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white p-4 rounded-lg shadow-sm">
+        <h3 className="text-lg font-medium text-gray-900">Módulo de Auditoría y Validación</h3>
+        <div className="flex gap-2">
+          <button onClick={onClearData} className="border border-red-300 text-red-600 px-4 py-2 rounded-md hover:bg-red-50 text-sm font-medium transition">Limpiar / Nuevo</button>
+          <button onClick={exportToExcel} className="bg-emerald-600 text-white px-4 py-2 rounded-md hover:bg-emerald-700 text-sm font-medium transition">{exporting ? 'Exportando...' : 'Exportar Excel'}</button>
+          <button onClick={generateAiReport} disabled={loadingAi} className="bg-indigo-600 text-white px-4 py-2 rounded-md hover:bg-indigo-700 text-sm font-medium transition disabled:opacity-50">{loadingAi ? 'Analizando...' : 'Informe IA'}</button>
         </div>
       </div>
-
-      <MonthlyStats records={result.missingRecords} />
-
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-6">
-        <h3 className="font-semibold text-gray-800 mb-4 flex items-center gap-2">
-          <svg className="w-5 h-5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
-          Estadísticas por Mes (Faltantes)
-        </h3>
-      </div>
-
-      <div className="h-[calc(100vh-450px)] mb-6">
+      {aiReport && <div className="p-6 bg-indigo-50 border border-indigo-100 rounded-lg"><h4 className="text-indigo-900 font-bold mb-2">Informe Ejecutivo IA</h4><div className="prose prose-sm max-w-none text-indigo-900/80 whitespace-pre-wrap font-sans">{aiReport}</div></div>}
+      <h4 className="font-semibold text-gray-700 mt-6">Estadísticas por Mes (Faltantes)</h4>
+      <MonthlyStats records={result.missingRecords.filter(r => auditState[r._key] !== 'failed')} />
+      <div className="h-[600px]">
         <DataTable 
           data={result.missingRecords} 
           headers={['fecha_val', 'factura_val', 'rut_val', 'nombre_val', 'monto_val']} 
@@ -955,66 +811,57 @@ const App = () => {
       }
   };
 
-  // ============================================================
-  // FUNCIÓN runAnalysis MEJORADA CON VALIDACIÓN ROBUSTA
-  // ============================================================
   const runAnalysis = () => {
     if (!currentData.softlandFile || !currentData.controlFile) return;
     
-    const processRows = (rows: ParsedRow[], mapping: Record<string, string>, source: 'softland' | 'control') => {
-      console.log(`[${source.toUpperCase()}] Procesando ${rows.length} filas crudas...`);
-      
-      const processed = rows
-        .map((row, idx) => ({
-          ...row,
-          factura_val: row[mapping['factura']] || '',
-          rut_val: row[mapping['rut']] || '',
-          monto_val: parseAmount(row[mapping['monto']] || '0').toString(),
-          nombre_val: row[mapping['nombre']] || '',
-          fecha_val: row[mapping['fecha']] || '',
-          tipo_val: row[mapping['tipo']] || '',
-          _key: `${normalizeRut(row[mapping['rut']])}_${normalizeInvoice(row[mapping['factura']])}`,
-          _originalIndex: idx
-        }))
-        .filter(r => isValidDataRow(r, {
-          factura: 'factura_val',
-          rut: 'rut_val',
-          monto: 'monto_val',
-          nombre: 'nombre_val',
-          fecha: 'fecha_val',
-          tipo: 'tipo_val'
-        }));
-      
-      console.log(`[${source.toUpperCase()}] ✓ ${processed.length} filas válidas después de filtrado`);
-      console.log(`[${source.toUpperCase()}] ✗ ${rows.length - processed.length} filas eliminadas (basura/subtotales/NC)`);
-      
-      return processed;
-    };
+    // Updated processRows with stricter filtering logic for Softland data
+    const processRows = (rows: ParsedRow[], mapping: Record<string, string>) => rows.map((row, idx) => ({ 
+        ...row, 
+        factura_val: row[mapping['factura']] || '', 
+        rut_val: row[mapping['rut']] || '', 
+        monto_val: parseAmount(row[mapping['monto']] || '0').toString(), 
+        nombre_val: row[mapping['nombre']] || '', 
+        fecha_val: row[mapping['fecha']] || '', 
+        tipo_val: row[mapping['tipo']] || '', // Extract Type
+        _key: `${normalizeRut(row[mapping['rut']])}_${normalizeInvoice(row[mapping['factura']])}` 
+    })).filter(r => {
+        // 1. Mandatory Fields Check
+        if (!r.factura_val || r.factura_val === '0' || r.monto_val === '0') return false;
+        
+        // 2. Strict Softland Garbage Filter: Must have a RUT.
+        // Softland subtotals/headers often lack RUTs or have "Total" in them.
+        if (!r.rut_val || r.rut_val.length < 3) return false;
 
-    const softlandProcessed = processRows(currentData.softlandFile.data, currentData.softlandMapping, 'softland');
-    const controlProcessed = processRows(currentData.controlFile.data, currentData.controlMapping, 'control');
+        // 3. Document Type Filtering
+        // Convert to string, lowercase, remove ".0" for float-like integers (e.g. "61.0" -> "61")
+        const docType = r.tipo_val.toString().toLowerCase().replace('.0', '').trim();
+        
+        // Explicitly Exclude Credit Notes (61), Debit Notes (56), Guías (52), and text-based keywords
+        const invalidTypes = ['61', '56', '52', '60', 'nota', 'credito', 'nc', 'n/c', 'débito', 'debito'];
+        if (invalidTypes.some(t => docType === t || docType.includes(t))) {
+            return false;
+        }
+        
+        return true;
+    });
+
+    const softlandProcessed = processRows(currentData.softlandFile.data, currentData.softlandMapping);
+    const controlProcessed = processRows(currentData.controlFile.data, currentData.controlMapping);
     
     const controlKeys = new Set(controlProcessed.map(r => r._key));
     const missingRecords = softlandProcessed.filter(sRow => !controlKeys.has(sRow._key));
     const totalMissingAmount = missingRecords.reduce((sum, r) => sum + parseInt(r.monto_val), 0);
     
-    console.log('\n=== RESUMEN ANÁLISIS ===');
-    console.log(`Softland válidos:  ${softlandProcessed.length}`);
-    console.log(`Control válidos:   ${controlProcessed.length}`);
-    console.log(`Coincidencias:     ${softlandProcessed.length - missingRecords.length}`);
-    console.log(`Faltantes:         ${missingRecords.length}`);
-    console.log(`Monto faltante:    $${(totalMissingAmount / 1000000).toFixed(1)}M`);
-    
     updateCurrentSchool({
-        analysis: {
-            softlandTotal: softlandProcessed.length,
-            controlTotal: controlProcessed.length,
-            matchedCount: softlandProcessed.length - missingRecords.length,
-            missingCount: missingRecords.length,
-            missingAmount: totalMissingAmount,
-            missingRecords,
-            controlRecords: controlProcessed,
-            softlandRecords: softlandProcessed
+        analysis: { 
+            softlandTotal: softlandProcessed.length, 
+            controlTotal: controlProcessed.length, 
+            matchedCount: softlandProcessed.length - missingRecords.length, 
+            missingCount: missingRecords.length, 
+            missingAmount: totalMissingAmount, 
+            missingRecords, 
+            controlRecords: controlProcessed, 
+            softlandRecords: softlandProcessed 
         }
     });
   };
