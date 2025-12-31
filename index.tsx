@@ -75,7 +75,7 @@ const REQUIRED_FIELDS = [
   { key: 'monto', label: 'Monto Total' },
   { key: 'nombre', label: 'Nombre/Proveedor' },
   { key: 'fecha', label: 'Fecha' },
-  { key: 'tipo', label: 'Tipo Docto (Opcional)' }
+  { key: 'tipo', label: 'Tipo Docto (Ej: 33, 61, Factura)' }
 ];
 
 // --- Helper Functions ---
@@ -94,8 +94,10 @@ const parseAmount = (amt: string | number) => {
   if (typeof amt === 'number') return amt;
   if (!amt) return 0;
   const str = String(amt);
+  // Remove currency symbols and standard separators, keep minus sign
   const clean = str.replace(/[^0-9,.-]/g, '');
-  const chileanFormat = clean.replace(/\./g, '');
+  // Assuming Chilean format: 1.000.000 or 1000000
+  const chileanFormat = clean.replace(/\./g, ''); 
   return parseInt(chileanFormat, 10) || 0;
 };
 
@@ -812,7 +814,7 @@ const App = () => {
   const runAnalysis = () => {
     if (!currentData.softlandFile || !currentData.controlFile) return;
     
-    // Updated processRows with filtering logic
+    // Updated processRows with stricter filtering logic for Softland data
     const processRows = (rows: ParsedRow[], mapping: Record<string, string>) => rows.map((row, idx) => ({ 
         ...row, 
         factura_val: row[mapping['factura']] || '', 
@@ -823,12 +825,22 @@ const App = () => {
         tipo_val: row[mapping['tipo']] || '', // Extract Type
         _key: `${normalizeRut(row[mapping['rut']])}_${normalizeInvoice(row[mapping['factura']])}` 
     })).filter(r => {
-        if (!r.factura_val || r.monto_val === '0') return false;
+        // 1. Mandatory Fields Check
+        if (!r.factura_val || r.factura_val === '0' || r.monto_val === '0') return false;
         
-        // Filter Credit Notes
-        const t = r.tipo_val.toLowerCase();
-        // Common terms for Credit Notes
-        if (t.includes('nota') || t.includes('credito') || t.includes('nc') || t === 'n/c') return false; 
+        // 2. Strict Softland Garbage Filter: Must have a RUT.
+        // Softland subtotals/headers often lack RUTs or have "Total" in them.
+        if (!r.rut_val || r.rut_val.length < 3) return false;
+
+        // 3. Document Type Filtering
+        // Convert to string, lowercase, remove ".0" for float-like integers (e.g. "61.0" -> "61")
+        const docType = r.tipo_val.toString().toLowerCase().replace('.0', '').trim();
+        
+        // Explicitly Exclude Credit Notes (61), Debit Notes (56), Guías (52), and text-based keywords
+        const invalidTypes = ['61', '56', '52', '60', 'nota', 'credito', 'nc', 'n/c', 'débito', 'debito'];
+        if (invalidTypes.some(t => docType === t || docType.includes(t))) {
+            return false;
+        }
         
         return true;
     });
