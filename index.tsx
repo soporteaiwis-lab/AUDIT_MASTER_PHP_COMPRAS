@@ -484,7 +484,12 @@ const FileUploader = ({ label, onFileLoaded, fileInfo }: { label: string, onFile
           if (rawData.length === 0) return;
 
           const headerRowIndex = findHeaderRow(rawData);
-          const sheetData: any[] = XLSX.utils.sheet_to_json(worksheet, { range: headerRowIndex, defval: "" });
+          const sheetData: any[] = XLSX.utils.sheet_to_json(worksheet, { 
+            range: headerRowIndex, 
+            defval: "",
+            raw: false,
+            dateNF: 'dd/mm/yyyy'
+          });
           
           if (sheetData.length > 0) {
             const standardized: ParsedRow[] = sheetData.map(row => {
