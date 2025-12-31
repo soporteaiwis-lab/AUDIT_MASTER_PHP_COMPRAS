@@ -67,14 +67,15 @@ const INITIAL_SCHOOL_STATE: SchoolState = {
 };
 
 // Keywords to detect the real header row in Softland/Control excels
-const HEADER_KEYWORDS = ['fecha', 'factura', 'documento', 'numero', 'rut', 'proveedor', 'monto', 'total', 'debe', 'haber'];
+const HEADER_KEYWORDS = ['fecha', 'factura', 'documento', 'numero', 'rut', 'proveedor', 'monto', 'total', 'debe', 'haber', 'tipo'];
 
 const REQUIRED_FIELDS = [
   { key: 'factura', label: 'N° Factura/Doc' },
   { key: 'rut', label: 'RUT' },
   { key: 'monto', label: 'Monto Total' },
   { key: 'nombre', label: 'Nombre/Proveedor' },
-  { key: 'fecha', label: 'Fecha' }
+  { key: 'fecha', label: 'Fecha' },
+  { key: 'tipo', label: 'Tipo Docto (Opcional)' }
 ];
 
 // --- Helper Functions ---
@@ -810,9 +811,31 @@ const App = () => {
 
   const runAnalysis = () => {
     if (!currentData.softlandFile || !currentData.controlFile) return;
-    const processRows = (rows: ParsedRow[], mapping: Record<string, string>) => rows.map((row, idx) => ({ ...row, factura_val: row[mapping['factura']] || '', rut_val: row[mapping['rut']] || '', monto_val: parseAmount(row[mapping['monto']] || '0').toString(), nombre_val: row[mapping['nombre']] || '', fecha_val: row[mapping['fecha']] || '', _key: `${normalizeRut(row[mapping['rut']])}_${normalizeInvoice(row[mapping['factura']])}` })).filter(r => r.factura_val && r.monto_val !== '0');
+    
+    // Updated processRows with filtering logic
+    const processRows = (rows: ParsedRow[], mapping: Record<string, string>) => rows.map((row, idx) => ({ 
+        ...row, 
+        factura_val: row[mapping['factura']] || '', 
+        rut_val: row[mapping['rut']] || '', 
+        monto_val: parseAmount(row[mapping['monto']] || '0').toString(), 
+        nombre_val: row[mapping['nombre']] || '', 
+        fecha_val: row[mapping['fecha']] || '', 
+        tipo_val: row[mapping['tipo']] || '', // Extract Type
+        _key: `${normalizeRut(row[mapping['rut']])}_${normalizeInvoice(row[mapping['factura']])}` 
+    })).filter(r => {
+        if (!r.factura_val || r.monto_val === '0') return false;
+        
+        // Filter Credit Notes
+        const t = r.tipo_val.toLowerCase();
+        // Common terms for Credit Notes
+        if (t.includes('nota') || t.includes('credito') || t.includes('nc') || t === 'n/c') return false; 
+        
+        return true;
+    });
+
     const softlandProcessed = processRows(currentData.softlandFile.data, currentData.softlandMapping);
     const controlProcessed = processRows(currentData.controlFile.data, currentData.controlMapping);
+    
     const controlKeys = new Set(controlProcessed.map(r => r._key));
     const missingRecords = softlandProcessed.filter(sRow => !controlKeys.has(sRow._key));
     const totalMissingAmount = missingRecords.reduce((sum, r) => sum + parseInt(r.monto_val), 0);
