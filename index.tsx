@@ -229,7 +229,8 @@ const DataTable = ({
   enableAudit = false,
   onAuditAction,
   auditState,
-  onSmartCheck
+  onSmartCheck,
+  onAutoSmartCheck
 }: { 
   data: ParsedRow[], 
   headers: string[], 
@@ -238,7 +239,8 @@ const DataTable = ({
   enableAudit?: boolean,
   onAuditAction?: (ids: string[], status: AuditStatus) => void,
   auditState?: Record<string, AuditStatus>,
-  onSmartCheck?: (row: ParsedRow) => void
+  onSmartCheck?: (row: ParsedRow) => void,
+  onAutoSmartCheck?: (ids: string[]) => void
 }) => {
   const [search, setSearch] = useState(initialSearch);
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
@@ -307,8 +309,20 @@ const DataTable = ({
           <div className="flex items-center gap-2 animate-fade-in bg-slate-800 text-white px-3 py-1.5 rounded-md shadow-lg">
              <span className="text-xs font-bold">{selectedRows.size} seleccionados</span>
              <div className="h-4 w-px bg-slate-600 mx-1"></div>
-             <button onClick={() => { onAuditAction?.(Array.from(selectedRows), 'verified'); setSelectedRows(new Set()); }} className="text-xs hover:text-green-300 font-medium">Validar OK</button>
-             <button onClick={() => { onAuditAction?.(Array.from(selectedRows), 'failed'); setSelectedRows(new Set()); }} className="text-xs hover:text-red-300 font-medium">Falso Positivo</button>
+             
+             {/* New Auto-Check Button */}
+             <button 
+                onClick={() => { onAutoSmartCheck?.(Array.from(selectedRows)); }} 
+                className="text-xs bg-yellow-500 hover:bg-yellow-600 text-black px-2 py-1 rounded font-bold flex items-center gap-1 transition-colors"
+                title="Verifica automáticamente si la factura existe en Control y marca OK o ERROR"
+             >
+                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                Auto-Analizar
+             </button>
+
+             <div className="h-4 w-px bg-slate-600 mx-1"></div>
+             <button onClick={() => { onAuditAction?.(Array.from(selectedRows), 'verified'); setSelectedRows(new Set()); }} className="text-xs hover:text-green-300 font-medium flex items-center gap-1">✅ Validar OK</button>
+             <button onClick={() => { onAuditAction?.(Array.from(selectedRows), 'failed'); setSelectedRows(new Set()); }} className="text-xs hover:text-red-300 font-medium flex items-center gap-1">❌ Falso Positivo</button>
           </div>
         )}
 
@@ -326,7 +340,7 @@ const DataTable = ({
                    <input type="checkbox" onChange={toggleSelectAll} checked={selectedRows.size > 0 && selectedRows.size === currentData.length} />
                 </th>
               )}
-              {enableAudit && <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50 w-24">Acciones</th>}
+              {enableAudit && <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider bg-gray-50 w-32">Acciones</th>}
               {headers.map(header => (
                 <th key={header} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100 select-none whitespace-nowrap" onClick={() => handleSort(header)}>
                   {header} {sortConfig?.key === header && (sortConfig.direction === 'asc' ? '↑' : '↓')}
@@ -347,9 +361,32 @@ const DataTable = ({
                     </td>
                   )}
                   {enableAudit && (
-                    <td className="px-4 py-3 whitespace-nowrap text-sm flex items-center gap-2">
-                      <button onClick={() => onSmartCheck?.(row)} title="Analizar Diferencia (3 Vistas)" className="p-1.5 bg-blue-100 text-blue-600 rounded-md hover:bg-blue-200 transition-colors">
-                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm flex items-center gap-1">
+                      {/* Manual Buttons Restored */}
+                      <button 
+                        onClick={() => onAuditAction?.([rowId], 'verified')}
+                        title="Manual: Confirmar Discrepancia (Visto Bueno)"
+                        className={`p-1.5 rounded-md transition-colors ${status === 'verified' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-400 hover:bg-green-100 hover:text-green-600'}`}
+                      >
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                      </button>
+
+                      <button 
+                        onClick={() => onAuditAction?.([rowId], 'failed')}
+                        title="Manual: Marcar Falso Positivo"
+                        className={`p-1.5 rounded-md transition-colors ${status === 'failed' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-400 hover:bg-red-100 hover:text-red-600'}`}
+                      >
+                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                      </button>
+
+                      <div className="w-px h-5 bg-gray-200 mx-1"></div>
+
+                      <button 
+                        onClick={() => onSmartCheck?.(row)} 
+                        title="Ver Detalle (3 Vistas)" 
+                        className="p-1.5 bg-blue-100 text-blue-600 rounded-md hover:bg-blue-200 transition-colors"
+                      >
+                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
                       </button>
                     </td>
                   )}
@@ -602,6 +639,32 @@ const DiscrepancyReport = ({ result, schoolName, auditState, setAuditState }: { 
     setAuditState(newState);
   };
 
+  const handleBulkAutoCheck = (ids: string[]) => {
+    const newState = { ...auditState };
+    let foundCount = 0;
+    let missingCount = 0;
+
+    ids.forEach(id => {
+      const row = result.missingRecords.find(r => r._key === id);
+      if (!row) return;
+
+      const targetInv = normalizeInvoice(row['factura_val']);
+      // Lookup in Control Records
+      const match = result.controlRecords.some(c => normalizeInvoice(c['factura_val']) === targetInv);
+      
+      if (match) {
+        newState[id] = 'failed'; // Found = False Positive
+        foundCount++;
+      } else {
+        newState[id] = 'verified'; // Not Found = Verified Missing
+        missingCount++;
+      }
+    });
+    
+    setAuditState(newState);
+    alert(`Auto-Análisis Completado:\n\n✅ ${missingCount} confirmados como Faltantes (Verificados)\n❌ ${foundCount} marcados como Falsos Positivos (Encontrados en Control)`);
+  };
+
   return (
     <div className="space-y-6 animate-fade-in-up">
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white p-4 rounded-lg shadow-sm">
@@ -615,7 +678,16 @@ const DiscrepancyReport = ({ result, schoolName, auditState, setAuditState }: { 
       <h4 className="font-semibold text-gray-700 mt-6">Estadísticas por Mes (Faltantes)</h4>
       <MonthlyStats records={result.missingRecords} />
       <div className="h-[600px]">
-        <DataTable data={result.missingRecords} headers={['fecha_val', 'factura_val', 'rut_val', 'nombre_val', 'monto_val']} title="Registro de Discrepancias" enableAudit={true} auditState={auditState} onAuditAction={handleAuditAction} onSmartCheck={setModalRecord} />
+        <DataTable 
+          data={result.missingRecords} 
+          headers={['fecha_val', 'factura_val', 'rut_val', 'nombre_val', 'monto_val']} 
+          title="Registro de Discrepancias" 
+          enableAudit={true} 
+          auditState={auditState} 
+          onAuditAction={handleAuditAction} 
+          onSmartCheck={setModalRecord} 
+          onAutoSmartCheck={handleBulkAutoCheck}
+        />
       </div>
       {modalRecord && (
         <ComparisonModal 
