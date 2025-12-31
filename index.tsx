@@ -101,63 +101,108 @@ const parseAmount = (amt: string | number) => {
   return parseInt(chileanFormat, 10) || 0;
 };
 
-// Strict Data Validation Function
+// ========== STRICT DATA VALIDATION FUNCTION ==========
 const isValidDataRow = (row: ParsedRow, mapping: Record<string, string>): boolean => {
-  // Obtener valores clave usando el mapeo proporcionado
+  // Extract key values using the provided mapping
   const factura = String(row[mapping['factura']] || '').trim();
   const rut = String(row[mapping['rut']] || '').trim();
   const monto = String(row[mapping['monto']] || '').trim();
   const nombre = String(row[mapping['nombre']] || '').trim().toLowerCase();
   const tipo = String(row[mapping['tipo']] || '').trim().toLowerCase();
   
-  // 1. VALIDACIONES BÁSICAS
-  if (!factura || factura === '0' || factura.toLowerCase() === 'nan') return false;
+  // 1. BASIC VALIDATIONS
+  // Invoice must exist and not be 0 or 'nan'
+  if (!factura || factura === '0' || factura.toLowerCase() === 'nan' || factura === 'null') {
+    return false;
+  }
   
   const rutClean = normalizeRut(rut);
-  // RUT debe tener al menos 7 caracteres (ej: 1111111)
-  if (!rutClean || rutClean.length < 7) return false;
+  // RUT must have at least 7 characters (e.g., 1111111)
+  if (!rutClean || rutClean.length < 7) {
+    return false;
+  }
   
-  if (!monto || monto === '0' || monto.toLowerCase() === 'nan') return false;
-  // Nombre debe existir y tener una longitud razonable
-  if (!nombre || nombre === 'nan' || nombre.length < 2) return false;
+  // Monto must exist
+  if (!monto || monto === '0' || monto.toLowerCase() === 'nan' || monto === 'null') {
+    return false;
+  }
   
-  // 2. FILTRAR SUBTOTALES Y TÍTULOS
+  // Name must exist and be reasonable length
+  if (!nombre || nombre === 'nan' || nombre === 'null' || nombre.length < 3) {
+    return false;
+  }
+  
+  // 2. FILTER HEADERS, TITLES AND SUBTOTALS
   const invalidKeywords = [
-    'total', 'subtotal', 'suma', 
-    'libro de compra', 'ordenado',
-    'desde:', 'hasta:', 'moneda:',
-    'período', 'resumen',
+    'total', 
+    'subtotal', 
+    'suma', 
+    'libro de compra',
+    'ordenado',
+    'desde:',
+    'hasta:',
+    'moneda:',
+    'período',
+    'resumen',
     'detalle'
   ];
   
-  // Check names
-  if (invalidKeywords.some(kw => nombre.includes(kw))) return false;
-  // Check if RUT itself is a keyword (sometimes totals appear in RUT column)
-  if (invalidKeywords.some(kw => rut.toLowerCase().includes(kw))) return false;
+  // Check against Name/Provider column
+  if (invalidKeywords.some(kw => nombre.includes(kw))) {
+    return false;
+  }
+  // Check against RUT column (sometimes totals are labeled here)
+  if (invalidKeywords.some(kw => rut.toLowerCase().includes(kw))) {
+    return false;
+  }
   
-  // 3. FILTRAR NOTAS DE CRÉDITO Y DOCUMENTOS NO VÁLIDOS
+  // 3. FILTER INVALID DOCUMENT TYPES (Credit Notes, Debit Notes, Guides)
   const tipoClean = tipo.replace('.0', '').replace(/\s+/g, '');
   const invalidTypes = [
-    '61', '56', '52', '60',
-    'nc', 'n/c', 'notacredito', 'notadebito',
-    'nota de credito', 'nota de crédito', 'guia'
+    '61',  // Nota de crédito electrónica
+    '56',  // Nota de débito
+    '52',  // Guía de despacho
+    '60',  // Nota de crédito manual
+    'nc',
+    'n/c',
+    'notacredito',
+    'notadebito',
+    'credito',
+    'debito',
+    'débito',
+    'crédito',
+    'guia'
   ];
   
-  if (invalidTypes.some(t => tipoClean === t || tipoClean.includes(t))) return false;
-  if (nombre.includes('nota') && (nombre.includes('credito') || nombre.includes('crédito'))) return false;
+  if (invalidTypes.some(t => tipoClean === t || tipoClean.includes(t))) {
+    return false;
+  }
   
-  // 4. FILTRAR MONTOS NEGATIVOS
+  // Check description for "Nota de Credito"
+  if (nombre.includes('nota') && (nombre.includes('credito') || nombre.includes('crédito'))) {
+    return false;
+  }
+  
+  // 4. FILTER NEGATIVE AMOUNTS (Typical for Credit Notes)
   const montoNumerico = parseAmount(monto);
-  if (montoNumerico < 0) return false;
+  if (montoNumerico < 0) {
+    return false;
+  }
   
-  // 5. VALIDAR RUT CHILENO (Formato básico)
-  // rutClean ya no tiene puntos ni guiones y es mayúscula.
-  // Verificar que lo que queda antes del DV sea numérico.
+  // 5. VALIDATE CHILEAN RUT FORMAT
+  // rutClean is uppercase and stripped of dots/dashes.
   const rutSinDV = rutClean.slice(0, -1);
   const dv = rutClean.slice(-1);
   
-  if (!/^\d+$/.test(rutSinDV)) return false;
-  if (!/^[0-9K]$/.test(dv)) return false;
+  // Body must be digits only
+  if (!/^\d+$/.test(rutSinDV)) {
+    return false;
+  }
+  
+  // DV must be digit or K
+  if (!/^[0-9K]$/.test(dv)) {
+    return false;
+  }
   
   return true;
 };
