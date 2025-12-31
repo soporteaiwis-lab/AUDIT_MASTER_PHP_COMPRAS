@@ -67,7 +67,11 @@ const INITIAL_SCHOOL_STATE: SchoolState = {
 };
 
 // Keywords to detect the real header row in Softland/Control excels
-const HEADER_KEYWORDS = ['fecha', 'factura', 'documento', 'numero', 'rut', 'proveedor', 'monto', 'total', 'debe', 'haber', 'tipo'];
+const HEADER_KEYWORDS = [
+  'fecha', 'factura', 'documento', 'numero', 'rut', 'proveedor', 
+  'monto', 'total', 'debe', 'haber', 'tipo', 'comprobante', 
+  'venc', 'glosa', 'detalle', 'razon social'
+];
 
 const REQUIRED_FIELDS = [
   { key: 'factura', label: 'N° Factura/Doc' },
@@ -99,6 +103,111 @@ const parseAmount = (amt: string | number) => {
   // Assuming Chilean format: 1.000.000 or 1000000
   const chileanFormat = clean.replace(/\./g, ''); 
   return parseInt(chileanFormat, 10) || 0;
+};
+
+// ========== STRICT DATA VALIDATION FUNCTION ==========
+const isValidDataRow = (row: ParsedRow, mapping: Record<string, string>): boolean => {
+  // Extract key values using the provided mapping
+  const factura = String(row[mapping['factura']] || '').trim();
+  const rut = String(row[mapping['rut']] || '').trim();
+  const monto = String(row[mapping['monto']] || '').trim();
+  const nombre = String(row[mapping['nombre']] || '').trim().toLowerCase();
+  const tipo = String(row[mapping['tipo']] || '').trim().toLowerCase();
+  
+  // 1. BASIC VALIDATIONS
+  // Invoice must exist and not be 0 or 'nan'
+  if (!factura || factura === '0' || factura.toLowerCase() === 'nan' || factura === 'null') {
+    return false;
+  }
+  
+  const rutClean = normalizeRut(rut);
+  // RUT must have at least 7 characters (e.g., 1111111)
+  if (!rutClean || rutClean.length < 7) {
+    return false;
+  }
+  
+  // Monto must exist
+  if (!monto || monto === '0' || monto.toLowerCase() === 'nan' || monto === 'null') {
+    return false;
+  }
+  
+  // Name must exist and be reasonable length
+  if (!nombre || nombre === 'nan' || nombre === 'null' || nombre.length < 2) {
+    return false;
+  }
+  
+  // 2. FILTER HEADERS, TITLES AND SUBTOTALS
+  const invalidKeywords = [
+    'total', 
+    'subtotal', 
+    'suma', 
+    'libro de compra',
+    'ordenado',
+    'desde:',
+    'hasta:',
+    'moneda:',
+    'período',
+    'resumen',
+    'detalle'
+  ];
+  
+  // Check against Name/Provider column
+  if (invalidKeywords.some(kw => nombre.includes(kw))) {
+    return false;
+  }
+  // Check against RUT column (sometimes totals are labeled here)
+  if (invalidKeywords.some(kw => rut.toLowerCase().includes(kw))) {
+    return false;
+  }
+  
+  // 3. FILTER INVALID DOCUMENT TYPES (Credit Notes, Debit Notes, Guides)
+  const tipoClean = tipo.replace('.0', '').replace(/\s+/g, '');
+  const invalidTypes = [
+    '61',  // Nota de crédito electrónica
+    '56',  // Nota de débito
+    '52',  // Guía de despacho
+    '60',  // Nota de crédito manual
+    'nc',
+    'n/c',
+    'notacredito',
+    'notadebito',
+    'credito',
+    'debito',
+    'débito',
+    'crédito',
+    'guia'
+  ];
+  
+  if (invalidTypes.some(t => tipoClean === t || tipoClean.includes(t))) {
+    return false;
+  }
+  
+  // Check description for "Nota de Credito"
+  if (nombre.includes('nota') && (nombre.includes('credito') || nombre.includes('crédito'))) {
+    return false;
+  }
+  
+  // 4. FILTER NEGATIVE AMOUNTS (Typical for Credit Notes)
+  const montoNumerico = parseAmount(monto);
+  if (montoNumerico < 0) {
+    return false;
+  }
+  
+  // 5. VALIDATE CHILEAN RUT FORMAT
+  const rutSinDV = rutClean.slice(0, -1);
+  const dv = rutClean.slice(-1);
+  
+  // Body must be digits only
+  if (!/^\d+$/.test(rutSinDV)) {
+    return false;
+  }
+  
+  // DV must be digit or K
+  if (!/^[0-9K]$/.test(dv)) {
+    return false;
+  }
+  
+  return true;
 };
 
 // --- Components ---
@@ -462,8 +571,11 @@ const FileUploader = ({ label, onFileLoaded, fileInfo }: { label: string, onFile
   const [loading, setLoading] = useState(false);
 
   const findHeaderRow = (rows: any[]): number => {
-    for (let i = 0; i < Math.min(rows.length, 20); i++) {
-      const rowStr = JSON.stringify(rows[i]).toLowerCase();
+    // Increased scan depth to 50 for Softland files with big headers/logos
+    for (let i = 0; i < Math.min(rows.length, 50); i++) {
+      const row = rows[i];
+      if (!row) continue;
+      const rowStr = JSON.stringify(row).toLowerCase();
       let matchCount = 0;
       HEADER_KEYWORDS.forEach(kw => { if (rowStr.includes(kw)) matchCount++; });
       if (matchCount >= 2) return i;
@@ -483,29 +595,41 @@ const FileUploader = ({ label, onFileLoaded, fileInfo }: { label: string, onFile
 
         workbook.SheetNames.forEach((sheetName: string) => {
           const worksheet = workbook.Sheets[sheetName];
+          // Use header: 1 to get raw array of arrays for header detection
           const rawData = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
           if (rawData.length === 0) return;
 
           const headerRowIndex = findHeaderRow(rawData);
+          
+          // Re-parse with the detected header row as key
+          // range: headerRowIndex tells sheet_to_json where to start
           const sheetData: any[] = XLSX.utils.sheet_to_json(worksheet, { 
             range: headerRowIndex, 
             defval: "",
-            raw: false,
+            raw: false, // Force strings to avoid date parsing issues initially
             dateNF: 'dd/mm/yyyy'
           });
           
           if (sheetData.length > 0) {
-            const standardized: ParsedRow[] = sheetData.map(row => {
+            const standardized: ParsedRow[] = sheetData.map((row: any) => {
                const newRow: ParsedRow = {};
-               Object.keys(row).forEach(key => {
-                 newRow[key] = String(row[key] !== undefined && row[key] !== null ? row[key] : "").trim();
-               });
+               if (row && typeof row === 'object') {
+                 Object.keys(row).forEach(key => {
+                   const val = row[key];
+                   newRow[key] = (val !== undefined && val !== null) ? String(val).trim() : "";
+                 });
+               }
                return newRow;
-            });
+            }).filter(row => Object.keys(row).length > 0); // Remove completely empty objects
             
             allData = [...allData, ...standardized];
+            
+            // Capture headers from the first valid sheet
             if (detectedHeaders.length === 0 && sheetData.length > 0) {
-              detectedHeaders = Object.keys(sheetData[0]);
+               const firstRow = sheetData[0];
+               if (firstRow && typeof firstRow === 'object') {
+                  detectedHeaders = Object.keys(firstRow);
+               }
             }
           }
         });
@@ -524,7 +648,7 @@ const FileUploader = ({ label, onFileLoaded, fileInfo }: { label: string, onFile
 
       } catch (err) {
         console.error("Error al procesar Excel", err);
-        alert("Error al leer el archivo Excel.");
+        alert("Error al leer el archivo Excel. Asegúrate de que no esté dañado.");
       } finally {
         setLoading(false);
       }
@@ -814,54 +938,60 @@ const App = () => {
   const runAnalysis = () => {
     if (!currentData.softlandFile || !currentData.controlFile) return;
     
-    // Updated processRows with stricter filtering logic for Softland data
-    const processRows = (rows: ParsedRow[], mapping: Record<string, string>) => rows.map((row, idx) => ({ 
-        ...row, 
-        factura_val: row[mapping['factura']] || '', 
-        rut_val: row[mapping['rut']] || '', 
-        monto_val: parseAmount(row[mapping['monto']] || '0').toString(), 
-        nombre_val: row[mapping['nombre']] || '', 
-        fecha_val: row[mapping['fecha']] || '', 
-        tipo_val: row[mapping['tipo']] || '', // Extract Type
-        _key: `${normalizeRut(row[mapping['rut']])}_${normalizeInvoice(row[mapping['factura']])}` 
-    })).filter(r => {
-        // 1. Mandatory Fields Check
-        if (!r.factura_val || r.factura_val === '0' || r.monto_val === '0') return false;
-        
-        // 2. Strict Softland Garbage Filter: Must have a RUT.
-        // Softland subtotals/headers often lack RUTs or have "Total" in them.
-        if (!r.rut_val || r.rut_val.length < 3) return false;
+    // === VERSIÓN MEJORADA DE processRows ===
+    const processRows = (rows: ParsedRow[], mapping: Record<string, string>, source: 'softland' | 'control') => {
+      console.log(`[${source.toUpperCase()}] Procesando ${rows.length} filas crudas...`);
+      
+      const processed = rows
+        .map((row, idx) => ({
+          ...row,
+          factura_val: row[mapping['factura']] || '',
+          rut_val: row[mapping['rut']] || '',
+          monto_val: parseAmount(row[mapping['monto']] || '0').toString(),
+          nombre_val: row[mapping['nombre']] || '',
+          fecha_val: row[mapping['fecha']] || '',
+          tipo_val: row[mapping['tipo']] || '',
+          _key: `${normalizeRut(row[mapping['rut']])}_${normalizeInvoice(row[mapping['factura']])}`,
+          _originalIndex: String(idx)
+        }))
+        .filter(r => isValidDataRow(r, {
+          factura: 'factura_val',
+          rut: 'rut_val',
+          monto: 'monto_val',
+          nombre: 'nombre_val',
+          fecha: 'fecha_val',
+          tipo: 'tipo_val'
+        }));
+      
+      console.log(`[${source.toUpperCase()}] ${processed.length} filas válidas después de filtrado`);
+      console.log(`[${source.toUpperCase()}] ${rows.length - processed.length} filas eliminadas (basura/subtotales/NC)`);
+      
+      return processed;
+    };
 
-        // 3. Document Type Filtering
-        // Convert to string, lowercase, remove ".0" for float-like integers (e.g. "61.0" -> "61")
-        const docType = r.tipo_val.toString().toLowerCase().replace('.0', '').trim();
-        
-        // Explicitly Exclude Credit Notes (61), Debit Notes (56), Guías (52), and text-based keywords
-        const invalidTypes = ['61', '56', '52', '60', 'nota', 'credito', 'nc', 'n/c', 'débito', 'debito'];
-        if (invalidTypes.some(t => docType === t || docType.includes(t))) {
-            return false;
-        }
-        
-        return true;
-    });
-
-    const softlandProcessed = processRows(currentData.softlandFile.data, currentData.softlandMapping);
-    const controlProcessed = processRows(currentData.controlFile.data, currentData.controlMapping);
+    const softlandProcessed = processRows(currentData.softlandFile.data, currentData.softlandMapping, 'softland');
+    const controlProcessed = processRows(currentData.controlFile.data, currentData.controlMapping, 'control');
     
     const controlKeys = new Set(controlProcessed.map(r => r._key));
     const missingRecords = softlandProcessed.filter(sRow => !controlKeys.has(sRow._key));
     const totalMissingAmount = missingRecords.reduce((sum, r) => sum + parseInt(r.monto_val), 0);
     
+    console.log('=== RESUMEN ANÁLISIS ===');
+    console.log(`Softland: ${softlandProcessed.length} registros válidos`);
+    console.log(`Control: ${controlProcessed.length} registros válidos`);
+    console.log(`Coincidencias: ${softlandProcessed.length - missingRecords.length}`);
+    console.log(`Faltantes: ${missingRecords.length} (${(totalMissingAmount / 1000000).toFixed(1)}M)`);
+    
     updateCurrentSchool({
-        analysis: { 
-            softlandTotal: softlandProcessed.length, 
-            controlTotal: controlProcessed.length, 
-            matchedCount: softlandProcessed.length - missingRecords.length, 
-            missingCount: missingRecords.length, 
-            missingAmount: totalMissingAmount, 
-            missingRecords, 
-            controlRecords: controlProcessed, 
-            softlandRecords: softlandProcessed 
+        analysis: {
+            softlandTotal: softlandProcessed.length,
+            controlTotal: controlProcessed.length,
+            matchedCount: softlandProcessed.length - missingRecords.length,
+            missingCount: missingRecords.length,
+            missingAmount: totalMissingAmount,
+            missingRecords,
+            controlRecords: controlProcessed,
+            softlandRecords: softlandProcessed
         }
     });
   };
