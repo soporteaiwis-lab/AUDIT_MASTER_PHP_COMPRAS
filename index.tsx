@@ -101,6 +101,67 @@ const parseAmount = (amt: string | number) => {
   return parseInt(chileanFormat, 10) || 0;
 };
 
+// Strict Data Validation Function
+const isValidDataRow = (row: ParsedRow, mapping: Record<string, string>): boolean => {
+  // Obtener valores clave usando el mapeo proporcionado
+  const factura = String(row[mapping['factura']] || '').trim();
+  const rut = String(row[mapping['rut']] || '').trim();
+  const monto = String(row[mapping['monto']] || '').trim();
+  const nombre = String(row[mapping['nombre']] || '').trim().toLowerCase();
+  const tipo = String(row[mapping['tipo']] || '').trim().toLowerCase();
+  
+  // 1. VALIDACIONES BÁSICAS
+  if (!factura || factura === '0' || factura.toLowerCase() === 'nan') return false;
+  
+  const rutClean = normalizeRut(rut);
+  // RUT debe tener al menos 7 caracteres (ej: 1111111)
+  if (!rutClean || rutClean.length < 7) return false;
+  
+  if (!monto || monto === '0' || monto.toLowerCase() === 'nan') return false;
+  // Nombre debe existir y tener una longitud razonable
+  if (!nombre || nombre === 'nan' || nombre.length < 2) return false;
+  
+  // 2. FILTRAR SUBTOTALES Y TÍTULOS
+  const invalidKeywords = [
+    'total', 'subtotal', 'suma', 
+    'libro de compra', 'ordenado',
+    'desde:', 'hasta:', 'moneda:',
+    'período', 'resumen',
+    'detalle'
+  ];
+  
+  // Check names
+  if (invalidKeywords.some(kw => nombre.includes(kw))) return false;
+  // Check if RUT itself is a keyword (sometimes totals appear in RUT column)
+  if (invalidKeywords.some(kw => rut.toLowerCase().includes(kw))) return false;
+  
+  // 3. FILTRAR NOTAS DE CRÉDITO Y DOCUMENTOS NO VÁLIDOS
+  const tipoClean = tipo.replace('.0', '').replace(/\s+/g, '');
+  const invalidTypes = [
+    '61', '56', '52', '60',
+    'nc', 'n/c', 'notacredito', 'notadebito',
+    'nota de credito', 'nota de crédito', 'guia'
+  ];
+  
+  if (invalidTypes.some(t => tipoClean === t || tipoClean.includes(t))) return false;
+  if (nombre.includes('nota') && (nombre.includes('credito') || nombre.includes('crédito'))) return false;
+  
+  // 4. FILTRAR MONTOS NEGATIVOS
+  const montoNumerico = parseAmount(monto);
+  if (montoNumerico < 0) return false;
+  
+  // 5. VALIDAR RUT CHILENO (Formato básico)
+  // rutClean ya no tiene puntos ni guiones y es mayúscula.
+  // Verificar que lo que queda antes del DV sea numérico.
+  const rutSinDV = rutClean.slice(0, -1);
+  const dv = rutClean.slice(-1);
+  
+  if (!/^\d+$/.test(rutSinDV)) return false;
+  if (!/^[0-9K]$/.test(dv)) return false;
+  
+  return true;
+};
+
 // --- Components ---
 
 // 1. Comparison Modal
@@ -814,44 +875,43 @@ const App = () => {
   const runAnalysis = () => {
     if (!currentData.softlandFile || !currentData.controlFile) return;
     
-    // Updated processRows with stricter filtering logic for Softland data
-    const processRows = (rows: ParsedRow[], mapping: Record<string, string>) => rows.map((row, idx) => ({ 
-        ...row, 
-        factura_val: row[mapping['factura']] || '', 
-        rut_val: row[mapping['rut']] || '', 
-        monto_val: parseAmount(row[mapping['monto']] || '0').toString(), 
-        nombre_val: row[mapping['nombre']] || '', 
-        fecha_val: row[mapping['fecha']] || '', 
-        tipo_val: row[mapping['tipo']] || '', // Extract Type
-        _key: `${normalizeRut(row[mapping['rut']])}_${normalizeInvoice(row[mapping['factura']])}` 
-    })).filter(r => {
-        // 1. Mandatory Fields Check
-        if (!r.factura_val || r.factura_val === '0' || r.monto_val === '0') return false;
+    const processRows = (rows: ParsedRow[], mapping: Record<string, string>, source: string) => {
+        console.log(`[${source.toUpperCase()}] Procesando ${rows.length} filas crudas...`);
         
-        // 2. Strict Softland Garbage Filter: Must have a RUT.
-        // Softland subtotals/headers often lack RUTs or have "Total" in them.
-        if (!r.rut_val || r.rut_val.length < 3) return false;
+        const processed = rows.map((row, idx) => ({ 
+            ...row, 
+            factura_val: row[mapping['factura']] || '', 
+            rut_val: row[mapping['rut']] || '', 
+            monto_val: parseAmount(row[mapping['monto']] || '0').toString(), 
+            nombre_val: row[mapping['nombre']] || '', 
+            fecha_val: row[mapping['fecha']] || '', 
+            tipo_val: row[mapping['tipo']] || '', // Extract Type
+            _key: `${normalizeRut(row[mapping['rut']])}_${normalizeInvoice(row[mapping['factura']])}` 
+        })).filter(r => isValidDataRow(r, {
+            factura: 'factura_val',
+            rut: 'rut_val',
+            monto: 'monto_val',
+            nombre: 'nombre_val',
+            fecha: 'fecha_val',
+            tipo: 'tipo_val'
+        }));
+        
+        console.log(`[${source.toUpperCase()}] ${processed.length} filas válidas después de filtrado`);
+        return processed;
+    };
 
-        // 3. Document Type Filtering
-        // Convert to string, lowercase, remove ".0" for float-like integers (e.g. "61.0" -> "61")
-        const docType = r.tipo_val.toString().toLowerCase().replace('.0', '').trim();
-        
-        // Explicitly Exclude Credit Notes (61), Debit Notes (56), Guías (52), and text-based keywords
-        const invalidTypes = ['61', '56', '52', '60', 'nota', 'credito', 'nc', 'n/c', 'débito', 'debito'];
-        if (invalidTypes.some(t => docType === t || docType.includes(t))) {
-            return false;
-        }
-        
-        return true;
-    });
-
-    const softlandProcessed = processRows(currentData.softlandFile.data, currentData.softlandMapping);
-    const controlProcessed = processRows(currentData.controlFile.data, currentData.controlMapping);
+    const softlandProcessed = processRows(currentData.softlandFile.data, currentData.softlandMapping, 'softland');
+    const controlProcessed = processRows(currentData.controlFile.data, currentData.controlMapping, 'control');
     
     const controlKeys = new Set(controlProcessed.map(r => r._key));
     const missingRecords = softlandProcessed.filter(sRow => !controlKeys.has(sRow._key));
     const totalMissingAmount = missingRecords.reduce((sum, r) => sum + parseInt(r.monto_val), 0);
     
+    console.log('=== RESUMEN ANÁLISIS ===');
+    console.log(`Softland: ${softlandProcessed.length} registros válidos`);
+    console.log(`Control: ${controlProcessed.length} registros válidos`);
+    console.log(`Faltantes: ${missingRecords.length}`);
+
     updateCurrentSchool({
         analysis: { 
             softlandTotal: softlandProcessed.length, 
